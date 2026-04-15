@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag name to use for manual release (example: v1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Restore
+        run: msbuild UwpTitlebarButtonPoc.sln /t:Restore /p:RestorePackagesConfig=true
+
+      - name: Build release app package
+        run: >-
+          msbuild UwpTitlebarButtonPoc.sln
+          /p:Configuration=Release
+          /p:Platform=x86
+          /p:AppxBundle=Always
+          /p:AppxBundlePlatforms="x86|arm"
+          /p:UseDotNetNativeToolchain=false
+          /p:AppxPackageSigningEnabled=false
+          /p:UapAppxPackageBuildMode=SideloadOnly
+          /p:AppxPackageDir=${{ github.workspace }}\\artifacts\\AppPackages\\
+
+      - name: Archive artifacts
+        run: >-
+          powershell -NoProfile -Command
+          "Compress-Archive -Path artifacts\\AppPackages\\* -DestinationPath artifacts\\uwp-apppackages.zip -Force"
+
+      - name: Resolve release metadata
+        id: release_meta
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            $tag = '${{ inputs.tag_name }}'
+          } else {
+            $tag = '${{ github.ref_name }}'
+          }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_meta.outputs.tag }}
+          name: Release ${{ steps.release_meta.outputs.tag }}
+          files: |
+            artifacts/uwp-apppackages.zip
