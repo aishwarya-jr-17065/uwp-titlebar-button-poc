@@ -22,8 +22,20 @@ jobs:
       - name: Setup NuGet
         uses: NuGet/setup-nuget@v2
 
+      # Install .NET Framework 4.8 targeting pack so MSBuild can resolve
+      # reference assemblies required by Microsoft.NETCore.UniversalWindowsPlatform.
+      # Without this step the build may fail with MSB3644.
+      - name: Install .NET Framework targeting pack
+        shell: powershell
+        run: choco install netfx-4.8-devpack -y --no-progress
+
+      # Diagnostic: list all solution files to help diagnose path issues.
+      - name: List solution files
+        shell: cmd
+        run: dir /s *.sln
+
       - name: Restore
-        run: msbuild UwpTitlebarButtonPoc.sln /t:Restore /p:RestorePackagesConfig=true
+        run: msbuild UwpTitlebarButtonPoc.sln /t:Restore /p:Configuration=Release /p:Platform=x86 /p:RestorePackagesConfig=true
 
       - name: Build (Release x86)
         run: >-
