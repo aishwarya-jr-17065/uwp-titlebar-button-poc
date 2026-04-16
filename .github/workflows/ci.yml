@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-uwp:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      # Install .NET Framework 4.0 targeting pack so MSBuild can resolve
+      # reference assemblies required by Microsoft.NETCore.UniversalWindowsPlatform.
+      # Without this step the build fails with MSB3644.
+      - name: Install .NET Framework targeting pack
+        shell: powershell
+        run: choco install netfx-4.0-devpack -y --no-progress
+
+      - name: Restore
+        run: msbuild UwpTitlebarButtonPoc.sln /t:Restore /p:Configuration=Release /p:Platform=x86 /p:RestorePackagesConfig=true
+
+      - name: Build (Release x86)
+        run: >-
+          msbuild UwpTitlebarButtonPoc.sln
+          /p:Configuration=Release
+          /p:Platform=x86
+          /p:AppxBundle=Always
+          /p:AppxBundlePlatforms="x86|arm"
+          /p:UseDotNetNativeToolchain=false
+          /p:AppxPackageSigningEnabled=false
+          /p:UapAppxPackageBuildMode=SideloadOnly
+          /p:AppxPackageDir=${{ github.workspace }}\\artifacts\\AppPackages\\
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: uwp-apppackages
+          path: artifacts/AppPackages
+          if-no-files-found: error
