@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-uwp:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      # Install .NET Framework 4.8 targeting pack and create a junction so that
+      # MSBuild can resolve reference assemblies when it looks for v4.0.
+      # The legacy UWP project triggers GetReferenceAssemblyPaths for .NETFramework,v4.0
+      # even though the actual app targets UAP; without this the build fails with MSB3644.
+      - name: Install .NET Framework targeting pack and provide v4.0 reference assemblies
+        shell: powershell
+        run: |
+          choco install netfx-4.8-devpack -y --no-progress
+          $v48 = "C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8"
+          $v40 = "C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.0"
+          if ((Test-Path $v48) -and (-not (Test-Path $v40))) {
+            cmd /c mklink /J `"$v40`" `"$v48`"
+            Write-Host "Created junction: $v40 -> $v48"
+          }
+
+      # Diagnostic: list all solution files to help diagnose path issues.
+      - name: List solution files
+        shell: cmd
+        run: dir /s *.sln
+
+      - name: Restore
+        run: msbuild UwpTitlebarButtonPoc.sln /t:Restore /p:Configuration=Release /p:Platform=x86 /p:RestorePackagesConfig=true
+
+      - name: Build (Release x86)
+        run: >-
+          msbuild UwpTitlebarButtonPoc.sln
+          /p:Configuration=Release
+          /p:Platform=x86
+          /p:AppxBundle=Always
+          /p:AppxBundlePlatforms="x86|arm"
+          /p:UseDotNetNativeToolchain=false
+          /p:AppxPackageSigningEnabled=false
+          /p:UapAppxPackageBuildMode=SideloadOnly
+          /p:AppxPackageDir=${{ github.workspace }}\\artifacts\\AppPackages\\
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: uwp-apppackages
+          path: artifacts/AppPackages
+          if-no-files-found: error
